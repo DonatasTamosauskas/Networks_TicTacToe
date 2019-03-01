@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <errno.h>
 /*
  * Game states:
  *  1. Server is waiting for a client
@@ -23,38 +24,95 @@
  *   b) If one of the clients quits, then return client to state 3
  */
 
+#define DEFAULT_ERROR_RETURN 1
+#define DEFAULT_RETURN 0
+
 #define PORT "9090"
-#define DEFAULT_ERROR_RETURN 1;
+#define MAX_CONNECTION_QUEUE 20
 
 void prepareAddrinfoHints(struct addrinfo *info);
 int getPortNumber(char port[]);
 void handleError(int errorCode, int errorType);
 int bindToPort(struct addrinfo *ai, int *listener);
+int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning);
 
 int main() {
 
-    int errorCode, listener;
+    int listener, maxFd;
+    int gameRunning;
     const char hostPort[5];
     struct addrinfo hints, *addrInfo;
+    fd_set master;
+
+    gameRunning = 1;
+    FD_ZERO(&master);
+
 
     prepareAddrinfoHints(&hints);
 
-    if((errorCode = getPortNumber(hostPort)) != 0) {
-        handleError(errorCode, 1);
+    if((getPortNumber(hostPort)) != 0) {
+        handleError(errno, 1);
         return DEFAULT_ERROR_RETURN;
     }
 
-    if((errorCode = getaddrinfo(NULL, hostPort, &hints, &addrInfo)) != 0) {
-        handleError(errorCode, 2);
+    if((getaddrinfo(NULL, hostPort, &hints, &addrInfo)) != 0) {
+        handleError(errno, 2);
         return DEFAULT_ERROR_RETURN;
     }
 
-    if((errorCode = bindToPort(addrInfo, &listener)) != 0) {
-        handleError(errorCode, 3);
+    if((bindToPort(addrInfo, &listener)) != 0) {
+        handleError(errno, 3);
         return DEFAULT_ERROR_RETURN;
     }
 
-    return 0;
+    freeaddrinfo(addrInfo);
+
+    if(listen(listener, MAX_CONNECTION_QUEUE) !=0){
+        handleError(errno, 4);
+        return DEFAULT_ERROR_RETURN;
+    }
+
+    maxFd = listener;
+
+    while(gameRunning) {
+        handleConnections(listener, &master, &maxFd, &gameRunning);
+    }
+
+
+    return DEFAULT_RETURN;
+}
+
+/*
+ * Desc:
+ * Params:
+ *
+ */
+int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning) {
+    fd_set readFds = *master;
+
+    if(select(*maxFd + 1, &readFds, NULL, NULL, NULL) < 0) {
+        handleError(errno, 5);
+        return DEFAULT_ERROR_RETURN;
+    }
+
+    for(int i = 0; i < *maxFd; i++) {
+        if(FD_ISSET(i, &readFds)) {
+            if(i == listener) {
+                handleNewConnection(&master, &maxFd);
+            } else {
+                handleExistingConnection();
+            }
+        }
+    }
+}
+
+/*
+ * Desc:
+ * Params:
+ *
+ */
+int handleNewConnection(fd_set *master, int *maxFd){
+
 }
 
 /*
@@ -121,6 +179,7 @@ int getPortNumber(char port[]) {
  *   1. Port number
  *   2. Get address info
  *   3. Bind to port
+ *   4. Listen for connection
  */
 void handleError(int errorCode, int errorType) {
     switch(errorType) {
@@ -135,6 +194,10 @@ void handleError(int errorCode, int errorType) {
 
         case 3:
             printf("Unable to bind to port. Error code: %d\n", errorCode);
+            break;
+
+        case 4:
+            printf("Unable to listen. Errno:%d\n", errorCode);
             break;
 
         default:
