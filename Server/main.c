@@ -24,56 +24,121 @@
  */
 
 #define PORT "9090"
+#define DEFAULT_ERROR_RETURN 1;
 
 void prepareAddrinfoHints(struct addrinfo *info);
 int getPortNumber(char port[]);
 void handleError(int errorCode, int errorType);
+int bindToPort(struct addrinfo *ai, int *listener);
 
 int main() {
 
-    int errorCode;
-    char hostPort[4];
+    int errorCode, listener;
+    const char hostPort[5];
     struct addrinfo hints, *addrInfo;
 
     prepareAddrinfoHints(&hints);
 
-    if((errorCode = getPortNumber(hostPort)) < 0) {
-        handleError(errorCode, "PortNumber");
+    if((errorCode = getPortNumber(hostPort)) != 0) {
+        handleError(errorCode, 1);
+        return DEFAULT_ERROR_RETURN;
     }
-    if(errorCode = getaddrinfo(NULL, ))
+
+    if((errorCode = getaddrinfo(NULL, hostPort, &hints, &addrInfo)) != 0) {
+        handleError(errorCode, 2);
+        return DEFAULT_ERROR_RETURN;
+    }
+
+    if((errorCode = bindToPort(addrInfo, &listener)) != 0) {
+        handleError(errorCode, 3);
+        return DEFAULT_ERROR_RETURN;
+    }
 
     return 0;
 }
 
 /*
- * Function sets addrinfo struct to use IP4/6, TCP and automatically assign host IP address.
+ * Desc: Function binds to first available address info
+ * Params:
+ *   ai - pointer to address info linked list
+ *   listener - listener that has been binded to
+ */
+int bindToPort(struct addrinfo *ai, int *listener) {
+
+    struct addrinfo *curr;
+
+    for(curr = ai; curr != NULL; curr = curr->ai_next) {
+
+        int listener = socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
+        if(listener < 0) continue;
+
+        int bindError = bind(listener, curr->ai_addr, curr->ai_addrlen);
+        if(bindError < 0) {
+            close(listener);
+            continue;
+        }
+
+        break;
+    }
+
+    if(curr == NULL) {
+        return -1;
+    }
+}
+
+/*
+ * Desc: Function sets addrinfo struct to use IP4/6, TCP and automatically assign host IP address.
+ * Params:
+ *   info - addrinfo struct used for preparing data
  */
 void prepareAddrinfoHints(struct addrinfo *info) {
-    memset(info, 0, sizeof(*info));
+    memset(info, 0, sizeof(struct addrinfo));
     info -> ai_family = AF_UNSPEC;
     info -> ai_socktype = SOCK_STREAM;
     info -> ai_flags = AI_PASSIVE;
 }
 
+/*
+ * Desc: Function gets the port number to be used for this instance.
+ * Params:
+ *   port - port number to be returned
+ * Returns: Error code.
+ */
 int getPortNumber(char port[]) {
-    port = PORT;
+    for(int i = 0; i < 5; i++){
+        port[i] = PORT[i];
+    }
     return 0;
 }
 
 /*
- * Handling errors.
+ * Desc: Function handles errors.
+ * Params:
+ *   errorCode - code provided by the method that threw the exception
+ *   errorType - type of function that threw the code
+ *
  * Error type table:
  *   1. Port number
- *   2.
+ *   2. Get address info
+ *   3. Bind to port
  */
 void handleError(int errorCode, int errorType) {
     switch(errorType) {
         case 1:
-            printf("Unable to get port number. Error code: %d", errorCode);
+            printf("Unable to get port number. Error code: %d\n", errorCode);
+            break;
+
+        case 2:
+            printf("Unable to get address info. Error code: %d\n", errorCode);
+            printf("Error code explanation: %s\n", gai_strerror(errorCode));
+            break;
+
+        case 3:
+            printf("Unable to bind to port. Error code: %d\n", errorCode);
             break;
 
         default:
-            printf("Unknown error type %d. Error code: %d", errorType, errorCode);
+            printf("Unknown error type %d. Error code: %d\n", errorType, errorCode);
     }
 }
 
