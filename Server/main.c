@@ -27,7 +27,7 @@
 #define DEFAULT_ERROR_RETURN 1
 #define DEFAULT_RETURN 0
 
-#define PORT "9090"
+#define PORT "9094"
 #define MAX_CONNECTION_QUEUE 20
 
 void prepareAddrinfoHints(struct addrinfo *info);
@@ -35,6 +35,8 @@ int getPortNumber(char port[]);
 void handleError(int errorCode, int errorType);
 int bindToPort(struct addrinfo *ai, int *listener);
 int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning);
+int handleNewConnection(int listener, fd_set *master, int *maxFd);
+int handleExistingConnection(int i, fd_set *master, int *maxFd);
 
 int main() {
 
@@ -98,9 +100,9 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
     for(int i = 0; i < *maxFd; i++) {
         if(FD_ISSET(i, &readFds)) {
             if(i == listener) {
-                handleNewConnection(&master, &maxFd);
+                handleNewConnection(listener, &master, &maxFd);
             } else {
-                handleExistingConnection();
+                handleExistingConnection(i, &master, &maxFd);
             }
         }
     }
@@ -111,8 +113,17 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
  * Params:
  *
  */
-int handleNewConnection(fd_set *master, int *maxFd){
+int handleExistingConnection(int i, fd_set *master, int *maxFd){
+    printf("Existing connection communicating");
+}
 
+/*
+ * Desc:
+ * Params:
+ *
+ */
+int handleNewConnection(int listener, fd_set *master, int *maxFd){
+    printf("New connection incoming");
 }
 
 /*
@@ -127,15 +138,14 @@ int bindToPort(struct addrinfo *ai, int *listener) {
 
     for(curr = ai; curr != NULL; curr = curr->ai_next) {
 
-        int listener = socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
+        *listener = socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
         if(listener < 0) continue;
 
-        int bindError = bind(listener, curr->ai_addr, curr->ai_addrlen);
+        int bindError = bind(*listener, curr->ai_addr, curr->ai_addrlen);
         if(bindError < 0) {
-            close(listener);
+            close(*listener);
             continue;
         }
-
         break;
     }
 
@@ -197,7 +207,8 @@ void handleError(int errorCode, int errorType) {
             break;
 
         case 4:
-            printf("Unable to listen. Errno:%d\n", errorCode);
+            printf("Unable to listen. Errno: %d\n", errorCode);
+            printf("Error code explanation: %s\n", gai_strerror(errorCode));
             break;
 
         default:
