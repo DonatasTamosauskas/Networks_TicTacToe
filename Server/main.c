@@ -31,8 +31,9 @@
 #define MAX_CONNECTION_QUEUE 20
 
 void prepareAddrinfoHints(struct addrinfo *info);
-int getPortNumber(char port[]);
 void handleError(int errorCode, int errorType);
+void logMessage(char message[]);
+int getPortNumber(char port[]);
 int bindToPort(struct addrinfo *ai, int *listener);
 int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning);
 int handleNewConnection(int listener, fd_set *master, int *maxFd);
@@ -100,9 +101,9 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
     for(int i = 0; i < *maxFd; i++) {
         if(FD_ISSET(i, &readFds)) {
             if(i == listener) {
-                handleNewConnection(listener, &master, &maxFd);
+                handleNewConnection(listener, master, maxFd);
             } else {
-                handleExistingConnection(i, &master, &maxFd);
+                handleExistingConnection(i, master, maxFd);
             }
         }
     }
@@ -118,12 +119,28 @@ int handleExistingConnection(int i, fd_set *master, int *maxFd){
 }
 
 /*
- * Desc:
+ * Desc: Accepts a new connection and assigns a new file descriptor to it.
  * Params:
- *
+ *   listener - listener file descriptor
+ *   master - the master set of all active file descriptors
+ *   maxFd - the maximum file descriptor currently in use
+ * Returns: -1 if error, new file descriptor otherwise.
  */
 int handleNewConnection(int listener, fd_set *master, int *maxFd){
-    printf("New connection incoming");
+    logMessage("New connection incoming");
+    struct socaddr_storage *remoteAddress;
+    socklen_t addr_size = sizeof(remoteAddress);
+
+    int newFd = accept(listener, (struct sockaddr *) remoteAddress, &addr_size);
+
+    if(newFd == -1) {
+        handleError(errno, 6);
+        return -1;
+    } else {
+        FD_SET(newFd, master);
+        if (newFd > *maxFd) *maxFd = newFd;
+        return newFd;
+    }
 }
 
 /*
@@ -190,6 +207,10 @@ int getPortNumber(char port[]) {
  *   2. Get address info
  *   3. Bind to port
  *   4. Listen for connection
+ *   5. Connection handler
+ *      6. New connection handler
+ *      7. Existing connection handler
+ *
  */
 void handleError(int errorCode, int errorType) {
     switch(errorType) {
@@ -199,7 +220,6 @@ void handleError(int errorCode, int errorType) {
 
         case 2:
             printf("Unable to get address info. Error code: %d\n", errorCode);
-            printf("Error code explanation: %s\n", gai_strerror(errorCode));
             break;
 
         case 3:
@@ -208,12 +228,29 @@ void handleError(int errorCode, int errorType) {
 
         case 4:
             printf("Unable to listen. Errno: %d\n", errorCode);
-            printf("Error code explanation: %s\n", gai_strerror(errorCode));
+            break;
+
+        case 5:
+            printf("Unable to handle an incoming connection. Errno: %d\n", errorCode);
+            break;
+
+        case 6:
+            printf("Unable to accept a new connection. Errno: %d\n", errorCode);
+            break;
+
+        case 7:
+            printf("Unable to handle data from an existing connection. Errno: %d\n", errorCode);
             break;
 
         default:
             printf("Unknown error type %d. Error code: %d\n", errorType, errorCode);
     }
+
+    printf("Error code explanation: %s\n", gai_strerror(errorCode));
+}
+
+void logMessage(char message[]) {
+    printf(message);
 }
 
 
