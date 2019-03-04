@@ -27,12 +27,11 @@
 #define DEFAULT_ERROR_RETURN 1
 #define DEFAULT_RETURN 0
 
-#define PORT "9094"
+#define PORT "9034"
 #define MAX_CONNECTION_QUEUE 20
 
 void prepareAddrinfoHints(struct addrinfo *info);
 void handleError(int errorCode, int errorType);
-void logMessage(char message[]);
 int getPortNumber(char port[]);
 int bindToPort(struct addrinfo *ai, int *listener);
 int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning);
@@ -58,7 +57,12 @@ int main() {
         return DEFAULT_ERROR_RETURN;
     }
 
-    if((getaddrinfo(NULL, hostPort, &hints, &addrInfo)) != 0) {
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    if(getaddrinfo(NULL, "9035", &hints, &addrInfo) != 0) {
         handleError(errno, 2);
         return DEFAULT_ERROR_RETURN;
     }
@@ -75,6 +79,7 @@ int main() {
         return DEFAULT_ERROR_RETURN;
     }
 
+    FD_SET(listener, &master);
     maxFd = listener;
 
     while(gameRunning) {
@@ -107,6 +112,8 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
             }
         }
     }
+
+    return 0;
 }
 
 /*
@@ -115,7 +122,8 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
  *
  */
 int handleExistingConnection(int i, fd_set *master, int *maxFd){
-    printf("Existing connection communicating");
+    printf("Existing connection communicating\n");
+    return 0;
 }
 
 /*
@@ -127,7 +135,7 @@ int handleExistingConnection(int i, fd_set *master, int *maxFd){
  * Returns: -1 if error, new file descriptor otherwise.
  */
 int handleNewConnection(int listener, fd_set *master, int *maxFd){
-    logMessage("New connection incoming");
+    printf("New connection incoming\n");
     struct socaddr_storage *remoteAddress;
     socklen_t addr_size = sizeof(remoteAddress);
 
@@ -168,6 +176,8 @@ int bindToPort(struct addrinfo *ai, int *listener) {
 
     if(curr == NULL) {
         return -1;
+    } else {
+        return 0;
     }
 }
 
@@ -249,8 +259,5 @@ void handleError(int errorCode, int errorType) {
     printf("Error code explanation: %s\n", gai_strerror(errorCode));
 }
 
-void logMessage(char message[]) {
-    printf(message);
-}
 
 
