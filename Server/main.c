@@ -29,19 +29,21 @@
 
 #define PORT "9034"
 #define MAX_CONNECTION_QUEUE 20
+#define RECEIVING_BUFFER_SIZE 255
 
 void prepareAddrinfoHints(struct addrinfo *info);
 void handleError(int errorCode, int errorType);
 int getPortNumber(char port[]);
 int bindToPort(struct addrinfo *ai, int *listener);
-int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning);
+int handleConnections(int listener, fd_set *master, int *maxFd, char buffer[], int *gameRunning);
 int handleNewConnection(int listener, fd_set *master, int *maxFd);
-int handleExistingConnection(int i, fd_set *master, int *maxFd);
+int handleExistingConnection(int i, fd_set *master, int *maxFd, char buffer[]);
 
 int main() {
 
     int listener, maxFd;
     int gameRunning;
+    char buffer[RECEIVING_BUFFER_SIZE];
     const char hostPort[5];
     struct addrinfo hints, *addrInfo;
     fd_set master;
@@ -57,12 +59,7 @@ int main() {
         return DEFAULT_ERROR_RETURN;
     }
 
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
-
-    if(getaddrinfo(NULL, "9035", &hints, &addrInfo) != 0) {
+    if(getaddrinfo(NULL, hostPort, &hints, &addrInfo) != 0) {
         handleError(errno, 2);
         return DEFAULT_ERROR_RETURN;
     }
@@ -83,7 +80,7 @@ int main() {
     maxFd = listener;
 
     while(gameRunning) {
-        handleConnections(listener, &master, &maxFd, &gameRunning);
+        handleConnections(listener, &master, &maxFd, &buffer, &gameRunning);
     }
 
 
@@ -95,7 +92,7 @@ int main() {
  * Params:
  *
  */
-int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning) {
+int handleConnections(int listener, fd_set *master, int *maxFd, char buffer[], int *gameRunning) {
     fd_set readFds = *master;
 
     if(select(*maxFd + 1, &readFds, NULL, NULL, NULL) < 0) {
@@ -103,12 +100,14 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
         return DEFAULT_ERROR_RETURN;
     }
 
-    for(int i = 0; i < *maxFd; i++) {
+    for(int i = 0; i <= *maxFd; i++) {
         if(FD_ISSET(i, &readFds)) {
             if(i == listener) {
+                // TODO: Implement standardised returns for different events
                 handleNewConnection(listener, master, maxFd);
             } else {
-                handleExistingConnection(i, master, maxFd);
+                handleExistingConnection(i, master, maxFd, buffer);
+                printf("%s\n", buffer);
             }
         }
     }
@@ -121,9 +120,25 @@ int handleConnections(int listener, fd_set *master, int *maxFd, int *gameRunning
  * Params:
  *
  */
-int handleExistingConnection(int i, fd_set *master, int *maxFd){
-    printf("Existing connection communicating\n");
-    return 0;
+int handleExistingConnection(int incomingFd, fd_set *master, int *maxFd, char buffer[]){
+    printf("Existing connection incoming.\n");
+    int recv_bits = recv(incomingFd, buffer, RECEIVING_BUFFER_SIZE, 0);
+
+    if(recv_bits < 0) {
+        handleError(errno, 7);
+        close(incomingFd);
+        FD_CLR(incomingFd, master);
+        return -1;
+
+    } else if (recv_bits == 0) {
+        close(incomingFd);
+        FD_CLR(incomingFd, master);
+        return 0;
+
+    } else {
+
+        return recv_bits;
+    }
 }
 
 /*
