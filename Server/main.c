@@ -88,7 +88,7 @@ int main() {
 
     while(gameRunning) {
         printf("%d\n", handleConnections(listener, &master, &maxFd, &data, &gameRunning));
-        printf("%s\n", data.buffer);
+        printf("%s\n Received from: %d, Lenght: %d\n", data.buffer, data.fileDescriptor, data.dataLength);
     }
 
 
@@ -213,6 +213,7 @@ int handleNewConnection(int listener, fd_set *master, int *maxFd){
  *   listener - listener that has been binded to
  */
 int bindToPort(struct addrinfo *ai, int *listener) {
+    //TODO: Handle port reusing scenario
 
     struct addrinfo *curr;
 
