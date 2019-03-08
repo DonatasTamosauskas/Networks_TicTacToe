@@ -48,7 +48,7 @@ int handleExistingConnection(int i, fd_set *master, int *maxFd, struct packet_da
 int main() {
 
     int listener, maxFd;
-    int gameRunning, receivedBits = 0;
+    int gameRunning;
     const char hostPort[5];
     struct addrinfo hints, *addrInfo;
     struct packet_data data;
@@ -220,7 +220,7 @@ int bindToPort(struct addrinfo *ai, int *listener) {
     for(curr = ai; curr != NULL; curr = curr->ai_next) {
 
         *listener = socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
-        if(listener < 0) continue;
+        if(*listener < 0) continue;
 
         int bindError = bind(*listener, curr->ai_addr, curr->ai_addrlen);
         if(bindError < 0) {
