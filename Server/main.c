@@ -79,12 +79,15 @@ int main() {
     const char hostPort[5];
     struct addrinfo hints, *addrInfo;
     struct received received_data;
+    struct packet_data packetData;
     struct game_state gameState;
     fd_set master;
 
     gameRunning = 1;
     memset(&received_data, 0, sizeof(struct received));
+    memset(&packetData, 0, sizeof(struct packet_data));
     memset(&gameState, 0, sizeof(struct game_state));
+    received_data.data = &packetData;
     FD_ZERO(&master);
 
 
@@ -117,10 +120,9 @@ int main() {
 
     while(gameRunning) {
         int connectionType = handleConnections(listener, &master, &maxFd, &received_data, &gameRunning);
-        printf("executeGame status: %d\n", executeGame(connectionType, &received_data, &gameState));
+        executeGame(connectionType, &received_data, &gameState);
         if(DEBUG) printf("Game state: %d\n", gameState.gameState);
     }
-
 
     return DEFAULT_RETURN;
 }
@@ -136,7 +138,7 @@ int executeGame(int connection_type, struct received *receivedData, struct game_
     if(gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
         return handleNewPlayer(gameState, receivedData);
 
-    } else if(gameState->gameState == 1 && gameState->gameState == NEW_DATA) {
+    } else if(gameState->gameState == 1 && connection_type == NEW_DATA) {
         return handleGameSequence(gameState, receivedData);
 
     } else if(connection_type == DISCONNECTED) {
@@ -144,6 +146,42 @@ int executeGame(int connection_type, struct received *receivedData, struct game_
     }
 
     return -3;
+}
+
+/*
+ * Desc: Function controls the main game sequence.
+ * Params:
+ *   gameState - structure with current game state information
+ *   receivedData - data received from handleConnections function
+ * Returns: -1 on error, 0 otherwise
+ */
+int handleGameSequence(struct game_state *gameState, struct received *receivedData) {
+    struct packet_data data;
+    memset(&data, 0, sizeof(struct packet_data));
+
+    data.gameState = 1;
+    data.x = receivedData->data->x;
+    data.y = receivedData->data->y;
+
+    if(receivedData->fileDescriptor == gameState->client1) {
+        data.enemyMove = 0;
+        sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
+
+        data.enemyMove = 1;
+        sendData(gameState->client1, &data, MAX_SEND_RETRY_COUNT);
+        return DEFAULT_RETURN;
+
+    } else if(receivedData->fileDescriptor == gameState->client2) {
+        data.enemyMove = 0;
+        sendData(gameState->client1, &data, MAX_SEND_RETRY_COUNT);
+
+        data.enemyMove = 1;
+        sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
+        return DEFAULT_RETURN;
+
+    } else {
+        return DEFAULT_ERROR_RETURN;
+    }
 }
 
 /*
@@ -224,16 +262,6 @@ int handleNewPlayer(struct game_state *gameState, struct received *receivedData)
     } else {
         return DEFAULT_ERROR_RETURN;
     }
-}
-
-/*
- * Desc:
- * Params:
- *
- * Returns:
- */
-int handleGameSequence(struct game_state *gameState, struct received *receivedData) {
-    return 0;
 }
 
 /*
