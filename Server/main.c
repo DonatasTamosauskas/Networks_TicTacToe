@@ -31,19 +31,39 @@
 #define MAX_CONNECTION_QUEUE 20
 #define RECEIVING_BUFFER_SIZE 255
 
+#define NEW_CONNECTION 10
+#define NEW_DATA 20
+#define DISCONNECTED 21
+
 struct packet_data {
+    int gameState;
+    int enemyMove;
+    int x;
+    int y;
+};
+
+struct received {
     int fileDescriptor;
     int dataLength;
-    char buffer[RECEIVING_BUFFER_SIZE];
+    struct packet_data *data;
+};
+
+struct game_state {
+    int gameState;
+    int client1;
+    int client2;
+    int currentMove;
 };
 
 void prepareAddrinfoHints(struct addrinfo *info);
 void handleError(int errorCode, int errorType);
 int getPortNumber(char port[]);
 int bindToPort(struct addrinfo *ai, int *listener);
-int handleConnections(int listener, fd_set *master, int *maxFd, struct packet_data *data, int *gameRunning);
+int handleConnections(int listener, fd_set *master, int *maxFd, struct received *data, int *gameRunning);
 int handleNewConnection(int listener, fd_set *master, int *maxFd);
-int handleExistingConnection(int i, fd_set *master, int *maxFd, struct packet_data *data);
+int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received *data);
+int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState);
+int addPlayer(struct received *receivedData, struct game_state *gameState);
 
 int main() {
 
@@ -51,11 +71,13 @@ int main() {
     int gameRunning;
     const char hostPort[5];
     struct addrinfo hints, *addrInfo;
-    struct packet_data data;
+    struct received received_data;
+    struct game_state gameState;
     fd_set master;
 
     gameRunning = 1;
-    memset(&data, 0, sizeof(struct packet_data));
+    memset(&received_data, 0, sizeof(struct received));
+    memset(&gameState, 0, sizeof(struct game_state));
     FD_ZERO(&master);
 
 
@@ -87,12 +109,44 @@ int main() {
     maxFd = listener;
 
     while(gameRunning) {
-        printf("%d\n", handleConnections(listener, &master, &maxFd, &data, &gameRunning));
-        printf("%s\n Received from: %d, Lenght: %d\n", data.buffer, data.fileDescriptor, data.dataLength);
+        int connectionType = handleConnections(listener, &master, &maxFd, &received_data, &gameRunning);
+
+        executeGame(listener, connectionType, &master, &received_data, &gameState);
+
     }
 
 
     return DEFAULT_RETURN;
+}
+
+int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState) {
+    if(gameState->gameState == 0) {
+        if(addPlayer(receivedData, gameState) < 0) return -1;
+    }
+}
+
+/*
+ * Desc: Adds connecting players to game state clients
+ * Params:
+ *    receivedData - struct that has the connecting player file descriptor
+ *    gameState - struct to add the connections as clients
+ * Returns:
+ *    -1 - if error occured
+ *    0 - if first client added
+ *    1 - if second client added
+ */
+int addPlayer(struct received *receivedData, struct game_state *gameState) {
+    if(gameState->client1 == 0) {
+        gameState->client1 = receivedData->fileDescriptor;
+        return 0;
+
+    } else if(gameState->client2 == 0) {
+        gameState->client2 = receivedData->fileDescriptor;
+        return 1;
+
+    } else {
+        return -1;
+    }
 }
 
 /*
@@ -108,8 +162,9 @@ int main() {
  *   20 - if data was received from an existing connection
  *   21 - if an existing connection disconnected
  */
-int handleConnections(int listener, fd_set *master, int *maxFd, struct packet_data *data, int *gameRunning) {
+int handleConnections(int listener, fd_set *master, int *maxFd, struct received *data, int *gameRunning) {
     fd_set readFds = *master;
+    int newFd;
 
     if(select(*maxFd + 1, &readFds, NULL, NULL, NULL) < 0) {
         handleError(errno, 5);
@@ -120,11 +175,12 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct packet_da
         if(FD_ISSET(i, &readFds)) {
             if(i == listener) {
 
-                if(handleNewConnection(listener, master, maxFd) < 0) {
+                if((newFd = handleNewConnection(listener, master, maxFd)) < 0) {
                     return DEFAULT_ERROR_RETURN;
 
                 } else {
-                    return 10;
+                    data->fileDescriptor = newFd;
+                    return NEW_CONNECTION;
 
                 }
 
@@ -134,10 +190,10 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct packet_da
                     return DEFAULT_ERROR_RETURN;
 
                 } else if(receivedBits == 0) {
-                    return 21;
+                    return DISCONNECTED;
 
                 } else {
-                    return 20;
+                    return NEW_DATA;
 
                 }
             }
@@ -155,9 +211,9 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct packet_da
  *   maxFd - maximum file descriptor currently in use
  *   buffer - buffer to be filled with packet data
  */
-int handleExistingConnection(int incomingFd, fd_set *master, int *maxFd, struct packet_data *data){
+int handleExistingConnection(int incomingFd, fd_set *master, int *maxFd, struct received *data){
     printf("Existing connection incoming.\n");
-    int recv_bits = recv(incomingFd, data->buffer, RECEIVING_BUFFER_SIZE, 0);
+    int recv_bits = recv(incomingFd, data->data, RECEIVING_BUFFER_SIZE, 0);
 
     if(recv_bits < 0) {
         handleError(errno, 7);
