@@ -27,7 +27,7 @@
 #define DEFAULT_ERROR_RETURN 1
 #define DEFAULT_RETURN 0
 
-#define PORT "9035"
+#define PORT "9034"
 #define MAX_CONNECTION_QUEUE 20
 #define RECEIVING_BUFFER_SIZE 255
 #define MAX_SEND_RETRY_COUNT 10
@@ -66,6 +66,7 @@ int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received 
 int sendData(int socketFd, struct packet_data *data, int timeout);
 int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState);
 int addPlayer(struct received *receivedData, struct game_state *gameState);
+int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData);
 
 int main() {
 
@@ -112,8 +113,7 @@ int main() {
 
     while(gameRunning) {
         int connectionType = handleConnections(listener, &master, &maxFd, &received_data, &gameRunning);
-
-        printf("%d\n", executeGame(listener, connectionType, &master, &received_data, &gameState));
+        printf("Executed game status: %d\n", executeGame(listener, connectionType, &master, &received_data, &gameState));
 
     }
 
@@ -132,6 +132,8 @@ int executeGame(int listener, int connection_type, fd_set *master, struct receiv
     int players;
     struct packet_data exportData;
 
+    printf("Game state: %d\n", gameState->gameState);
+
     // TODO: Export to a game initialization function
     if(gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
         players = addPlayer(receivedData, gameState);
@@ -139,13 +141,13 @@ int executeGame(int listener, int connection_type, fd_set *master, struct receiv
         if(players < 0) {
             return DEFAULT_ERROR_RETURN;
 
-        } else if (players == 0) {
+        } else if (players == 1) {
             exportData.gameState = 0;
             if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
             printf("New player added\n");
             return DEFAULT_RETURN;
 
-        } else if (players == 1) {
+        } else if (players == 2) {
             exportData.gameState = 1;
             exportData.enemyMove = 0;
             if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
@@ -159,32 +161,73 @@ int executeGame(int listener, int connection_type, fd_set *master, struct receiv
     }
 
     // TODO: Export to a main game sequence function
-    if(gameState->gameState == 1) {
-
+    if(gameState->gameState == 1 && gameState->gameState == NEW_DATA) {
+        return 0;
     }
 
-    // TODO: Export to disconnection function
     if(connection_type == DISCONNECTED) {
-        if(gameState->gameState == 0) {
-            gameState->client1 = 0;
-
-        } else if(gameState->gameState == 1) {
-            if(gameState->client1 == receivedData->fileDescriptor) {
-                gameState->client1 = gameState->client2;
-
-            } else if(receivedData->fileDescriptor != gameState->client1 ||
-            receivedData->fileDescriptor != gameState->client2) {
-                return DEFAULT_ERROR_RETURN;
-            }
-
-            gameState->gameState = 0;
-            gameState->client2 = 0;
-
-            exportData.gameState = 0;
-            if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
-            return DEFAULT_RETURN;
-        }
+        handlePlayerDisconnect(gameState, receivedData);
     }
+
+    return -2;
+}
+
+/*
+ * Desc: Function handles disconnections from clients in various game states.
+ * Params:
+ *    gameState - structure with current game state information
+ *    receivedData - data received from handleConnections function
+ * Returns:
+ *    0 if handled correctly.
+ *    -1 on error
+ *    -2 on disconnection from non-client
+ */
+int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData) {
+    if(gameState->gameState == 0) {
+        gameState->client1 = 0;
+        return DEFAULT_RETURN;
+
+    } else if(gameState->gameState == 1) {
+        if(gameState->client1 == receivedData->fileDescriptor) {
+            gameState->client1 = gameState->client2;
+
+        } else if(receivedData->fileDescriptor != gameState->client1 ||
+                  receivedData->fileDescriptor != gameState->client2) {
+            return DEFAULT_ERROR_RETURN;
+        }
+
+        gameState->gameState = 0;
+        gameState->client2 = 0;
+
+        struct packet_data exportData;
+        memset(&exportData, 0, sizeof(struct packet_data));
+        exportData.gameState = 0;
+        if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+        return DEFAULT_RETURN;
+
+    } else {
+        return -2;
+    }
+}
+
+/*
+ * Desc:
+ * Params:
+ *
+ * Returns:
+ */
+int handleNewPlayer() {
+
+}
+
+/*
+ * Desc:
+ * Params:
+ *
+ * Returns:
+ */
+int handleGameSequence() {
+
 }
 
 /*
@@ -194,17 +237,17 @@ int executeGame(int listener, int connection_type, fd_set *master, struct receiv
  *    gameState - struct to add the connections as clients
  * Returns:
  *    -1 - if error occured
- *    0 - if first client added
- *    1 - if second client added
+ *    1 - if first client added
+ *    2 - if second client added
  */
 int addPlayer(struct received *receivedData, struct game_state *gameState) {
     if(gameState->client1 == 0) {
         gameState->client1 = receivedData->fileDescriptor;
-        return 0;
+        return 1;
 
     } else if(gameState->client2 == 0) {
         gameState->client2 = receivedData->fileDescriptor;
-        return 1;
+        return 2;
 
     } else {
         return -1;
