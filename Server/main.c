@@ -36,6 +36,8 @@
 #define NEW_DATA 20
 #define DISCONNECTED 21
 
+#define DEBUG 1
+
 struct packet_data {
     int gameState;
     int enemyMove;
@@ -64,9 +66,11 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct received 
 int handleNewConnection(int listener, fd_set *master, int *maxFd);
 int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received *data);
 int sendData(int socketFd, struct packet_data *data, int timeout);
-int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState);
+int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState);
 int addPlayer(struct received *receivedData, struct game_state *gameState);
 int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData);
+int handleGameSequence(struct game_state *gameState, struct received *receivedData);
+int handleNewPlayer(struct game_state *gameState, struct received *receivedData);
 
 int main() {
 
@@ -113,8 +117,8 @@ int main() {
 
     while(gameRunning) {
         int connectionType = handleConnections(listener, &master, &maxFd, &received_data, &gameRunning);
-        printf("Executed game status: %d\n", executeGame(listener, connectionType, &master, &received_data, &gameState));
-
+        printf("executeGame status: %d\n", executeGame(connectionType, &received_data, &gameState));
+        if(DEBUG) printf("Game state: %d\n", gameState.gameState);
     }
 
 
@@ -128,48 +132,18 @@ int main() {
  *
  * Returns:
  */
-int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState) {
-    int players;
-    struct packet_data exportData;
-
-    printf("Game state: %d\n", gameState->gameState);
-
-    // TODO: Export to a game initialization function
+int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState) {
     if(gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
-        players = addPlayer(receivedData, gameState);
+        return handleNewPlayer(gameState, receivedData);
 
-        if(players < 0) {
-            return DEFAULT_ERROR_RETURN;
+    } else if(gameState->gameState == 1 && gameState->gameState == NEW_DATA) {
+        return handleGameSequence(gameState, receivedData);
 
-        } else if (players == 1) {
-            exportData.gameState = 0;
-            if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
-            printf("New player added\n");
-            return DEFAULT_RETURN;
-
-        } else if (players == 2) {
-            exportData.gameState = 1;
-            exportData.enemyMove = 0;
-            if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
-
-            exportData.enemyMove = 1;
-            if(sendData(gameState->client2, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
-
-            gameState->gameState = 1;
-            return DEFAULT_RETURN;
-        }
+    } else if(connection_type == DISCONNECTED) {
+        return handlePlayerDisconnect(gameState, receivedData);
     }
 
-    // TODO: Export to a main game sequence function
-    if(gameState->gameState == 1 && gameState->gameState == NEW_DATA) {
-        return 0;
-    }
-
-    if(connection_type == DISCONNECTED) {
-        handlePlayerDisconnect(gameState, receivedData);
-    }
-
-    return -2;
+    return -3;
 }
 
 /*
@@ -185,13 +159,14 @@ int executeGame(int listener, int connection_type, fd_set *master, struct receiv
 int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData) {
     if(gameState->gameState == 0) {
         gameState->client1 = 0;
+        if(DEBUG) printf("Player #1 disconnected. No more connected players.\n");
         return DEFAULT_RETURN;
 
     } else if(gameState->gameState == 1) {
         if(gameState->client1 == receivedData->fileDescriptor) {
             gameState->client1 = gameState->client2;
 
-        } else if(receivedData->fileDescriptor != gameState->client1 ||
+        } else if(receivedData->fileDescriptor != gameState->client1 &&
                   receivedData->fileDescriptor != gameState->client2) {
             return DEFAULT_ERROR_RETURN;
         }
@@ -203,10 +178,51 @@ int handlePlayerDisconnect(struct game_state *gameState, struct received *receiv
         memset(&exportData, 0, sizeof(struct packet_data));
         exportData.gameState = 0;
         if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+
+        if(DEBUG) printf("Player #2 disconnected.\n");
         return DEFAULT_RETURN;
 
     } else {
         return -2;
+    }
+}
+
+/*
+ * Desc: Handles connections of new players and their waiting in queue
+ * Params:
+ *    gameState - the current state of the game struct
+ *    receivedData - struct that has the connecting players info
+ * Returns: -1 on error, 0 otherwise
+ */
+int handleNewPlayer(struct game_state *gameState, struct received *receivedData) {
+    int players = addPlayer(receivedData, gameState);
+    struct packet_data exportData;
+    memset(&exportData, 0, sizeof(struct packet_data));
+
+    if(players < 0) {
+        return DEFAULT_ERROR_RETURN;
+
+    } else if (players == 1) {
+        exportData.gameState = 0;
+        if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+
+        if(DEBUG) printf("Player #1 added.\n");
+        return DEFAULT_RETURN;
+
+    } else if (players == 2) {
+        exportData.gameState = 1;
+        exportData.enemyMove = 0;
+        if (sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+
+        exportData.enemyMove = 1;
+        if (sendData(gameState->client2, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+        if (DEBUG) printf("Player #2 added\n");
+
+        gameState->gameState = 1;
+        return DEFAULT_RETURN;
+
+    } else {
+        return DEFAULT_ERROR_RETURN;
     }
 }
 
@@ -216,18 +232,8 @@ int handlePlayerDisconnect(struct game_state *gameState, struct received *receiv
  *
  * Returns:
  */
-int handleNewPlayer() {
-
-}
-
-/*
- * Desc:
- * Params:
- *
- * Returns:
- */
-int handleGameSequence() {
-
+int handleGameSequence(struct game_state *gameState, struct received *receivedData) {
+    return 0;
 }
 
 /*
@@ -335,7 +341,7 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct received 
  *   data - data buffer to be filled with packet data
  */
 int handleExistingConnection(int incomingFd, fd_set *master, int *maxFd, struct received *data){
-    printf("Existing connection incoming.\n");
+    if(DEBUG) printf("Existing connection incoming.\n");
     int recv_bits = recv(incomingFd, data->data, sizeof(struct packet_data), 0);
 
     if(recv_bits < 0) {
@@ -369,7 +375,7 @@ int handleExistingConnection(int incomingFd, fd_set *master, int *maxFd, struct 
  * Returns: -1 if error, new file descriptor otherwise.
  */
 int handleNewConnection(int listener, fd_set *master, int *maxFd){
-    printf("New connection incoming\n");
+    if(DEBUG) printf("New connection incoming\n");
     struct socaddr_storage *remoteAddress;
     socklen_t addr_size = sizeof(remoteAddress);
 
