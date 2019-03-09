@@ -14,11 +14,19 @@
 #define DEFAULT_ERROR_RETURN -1
 #define MAX_HOSTNAME_LENGTH 200
 
+struct packetData {
+    int enemyMove;
+    int gameState;
+    int x;
+    int y;
+};
+
 void prepareAddrinfoHints(struct addrinfo *info);
 int getPortNumber(char port[]);
 void handleError(int errorCode, int errorType);
 int connectToPort(struct addrinfo *ai, int *socketFd);
 int getServerAddress(char address[], int address_length);
+int sendData(int socketFd, struct packetData *data, int timeout);
 
 
 int main() {
@@ -48,13 +56,33 @@ int main() {
         return DEFAULT_ERROR_RETURN;
     }
 
+    freeaddrinfo(addrInfo);
+
+
 }
+
+/*
+ * Desc: Function repeatedly tries to send all data until it's all sent or a timeout is reached.
+ * Params:
+ *   socketFd - socket file descriptor to be used for sending data
+ *   data - packetData to send
+ *   timeout - number of retries to send data in case it's not sent
+ * Returns: 0 if sent, -1 if error
+ */
+int sendData(int socketFd, struct packetData *data, int timeout) {
+    int sentBits = send(socketFd, data, sizeof(struct packetData), 0);
+
+    if(sentBits < sizeof(struct packetData) && timeout > 0) {
+        return (sendData(socketFd, data, timeout) == sizeof(struct packetData)) -1;
+    }
+    return (sentBits == sizeof(struct packetData)) -1;
+}
+
 
 /*
  * Desc: Function to get the remote address of the server.
  * Params:
  *   address - address to connect to, in text form
- *
  * Returns: 0 if okay, -1 if error occurred
  */
 int getServerAddress(char address[], int address_length){
