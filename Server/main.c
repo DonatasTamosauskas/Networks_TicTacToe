@@ -27,9 +27,10 @@
 #define DEFAULT_ERROR_RETURN 1
 #define DEFAULT_RETURN 0
 
-#define PORT "9034"
+#define PORT "9035"
 #define MAX_CONNECTION_QUEUE 20
 #define RECEIVING_BUFFER_SIZE 255
+#define MAX_SEND_RETRY_COUNT 10
 
 #define NEW_CONNECTION 10
 #define NEW_DATA 20
@@ -62,6 +63,7 @@ int bindToPort(struct addrinfo *ai, int *listener);
 int handleConnections(int listener, fd_set *master, int *maxFd, struct received *data, int *gameRunning);
 int handleNewConnection(int listener, fd_set *master, int *maxFd);
 int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received *data);
+int sendData(int socketFd, struct packet_data *data, int timeout);
 int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState);
 int addPlayer(struct received *receivedData, struct game_state *gameState);
 
@@ -111,7 +113,7 @@ int main() {
     while(gameRunning) {
         int connectionType = handleConnections(listener, &master, &maxFd, &received_data, &gameRunning);
 
-        executeGame(listener, connectionType, &master, &received_data, &gameState);
+        printf("%d\n", executeGame(listener, connectionType, &master, &received_data, &gameState));
 
     }
 
@@ -119,9 +121,69 @@ int main() {
     return DEFAULT_RETURN;
 }
 
+
+/*
+ * Desc:
+ * Params:
+ *
+ * Returns:
+ */
 int executeGame(int listener, int connection_type, fd_set *master, struct received *receivedData, struct game_state *gameState) {
-    if(gameState->gameState == 0) {
-        if(addPlayer(receivedData, gameState) < 0) return -1;
+    int players;
+    struct packet_data exportData;
+
+    // TODO: Export to a game initialization function
+    if(gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
+        players = addPlayer(receivedData, gameState);
+
+        if(players < 0) {
+            return DEFAULT_ERROR_RETURN;
+
+        } else if (players == 0) {
+            exportData.gameState = 0;
+            if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+            printf("New player added\n");
+            return DEFAULT_RETURN;
+
+        } else if (players == 1) {
+            exportData.gameState = 1;
+            exportData.enemyMove = 0;
+            if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+
+            exportData.enemyMove = 1;
+            if(sendData(gameState->client2, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+
+            gameState->gameState = 1;
+            return DEFAULT_RETURN;
+        }
+    }
+
+    // TODO: Export to a main game sequence function
+    if(gameState->gameState == 1) {
+
+    }
+
+    // TODO: Export to disconnection function
+    if(connection_type == DISCONNECTED) {
+        if(gameState->gameState == 0) {
+            gameState->client1 = 0;
+
+        } else if(gameState->gameState == 1) {
+            if(gameState->client1 == receivedData->fileDescriptor) {
+                gameState->client1 = gameState->client2;
+
+            } else if(receivedData->fileDescriptor != gameState->client1 ||
+            receivedData->fileDescriptor != gameState->client2) {
+                return DEFAULT_ERROR_RETURN;
+            }
+
+            gameState->gameState = 0;
+            gameState->client2 = 0;
+
+            exportData.gameState = 0;
+            if(sendData(gameState->client1, &exportData, MAX_SEND_RETRY_COUNT) == -1) return DEFAULT_ERROR_RETURN;
+            return DEFAULT_RETURN;
+        }
     }
 }
 
@@ -147,6 +209,23 @@ int addPlayer(struct received *receivedData, struct game_state *gameState) {
     } else {
         return -1;
     }
+}
+
+/*
+ * Desc: Function repeatedly tries to send all data until it's all sent or a timeout is reached.
+ * Params:
+ *   socketFd - socket file descriptor to be used for sending data
+ *   data - packet_data to send
+ *   timeout - number of retries to send data in case it's not sent
+ * Returns: 0 if sent, -1 if error
+ */
+int sendData(int socketFd, struct packet_data *data, int timeout) {
+    int sentBits = send(socketFd, data, sizeof(struct packet_data), 0);
+
+    if(sentBits < sizeof(struct packet_data) && timeout > 0) {
+        return (sendData(socketFd, data, timeout) == sizeof(struct packet_data)) -1;
+    }
+    return (sentBits == sizeof(struct packet_data)) -1;
 }
 
 /*
@@ -208,12 +287,13 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct received 
  *       disconnected connections.
  * Params:
  *   incomingFd - the file descriptor of connection from which the data is coming
+ *   master - master set of all file descriptors
  *   maxFd - maximum file descriptor currently in use
- *   buffer - buffer to be filled with packet data
+ *   data - data buffer to be filled with packet data
  */
 int handleExistingConnection(int incomingFd, fd_set *master, int *maxFd, struct received *data){
     printf("Existing connection incoming.\n");
-    int recv_bits = recv(incomingFd, data->data, RECEIVING_BUFFER_SIZE, 0);
+    int recv_bits = recv(incomingFd, data->data, sizeof(struct packet_data), 0);
 
     if(recv_bits < 0) {
         handleError(errno, 7);
