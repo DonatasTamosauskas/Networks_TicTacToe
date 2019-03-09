@@ -31,6 +31,7 @@
 #define MAX_CONNECTION_QUEUE 20
 #define RECEIVING_BUFFER_SIZE 255
 #define MAX_SEND_RETRY_COUNT 10
+#define BOARD_SIZE 3
 
 #define NEW_CONNECTION 10
 #define NEW_DATA 20
@@ -55,7 +56,6 @@ struct game_state {
     int gameState;
     int client1;
     int client2;
-    int currentMove;
 };
 
 void prepareAddrinfoHints(struct addrinfo *info);
@@ -66,11 +66,12 @@ int handleConnections(int listener, fd_set *master, int *maxFd, struct received 
 int handleNewConnection(int listener, fd_set *master, int *maxFd);
 int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received *data);
 int sendData(int socketFd, struct packet_data *data, int timeout);
-int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState);
+int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 int addPlayer(struct received *receivedData, struct game_state *gameState);
 int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData);
-int handleGameSequence(struct game_state *gameState, struct received *receivedData);
+int handleGameSequence(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 int handleNewPlayer(struct game_state *gameState, struct received *receivedData);
+int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct game_state *gameState);
 
 int main() {
 
@@ -81,6 +82,7 @@ int main() {
     struct received received_data;
     struct packet_data packetData;
     struct game_state gameState;
+    int gameBoard[BOARD_SIZE][BOARD_SIZE];
     fd_set master;
 
     gameRunning = 1;
@@ -120,7 +122,7 @@ int main() {
 
     while(gameRunning) {
         int connectionType = handleConnections(listener, &master, &maxFd, &received_data, &gameRunning);
-        executeGame(connectionType, &received_data, &gameState);
+        executeGame(connectionType, &received_data, &gameState, gameBoard);
         if(DEBUG) printf("Game state: %d\n", gameState.gameState);
     }
 
@@ -134,16 +136,23 @@ int main() {
  *
  * Returns:
  */
-int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState) {
+int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     if(gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
+
+        for(int i = 0; i < BOARD_SIZE; i++) {
+            memset(gameBoard[i], 0, sizeof(gameBoard[i]));
+        }
+
         return handleNewPlayer(gameState, receivedData);
 
     } else if(gameState->gameState == 1 && connection_type == NEW_DATA) {
-        return handleGameSequence(gameState, receivedData);
+        return handleGameSequence(gameState, receivedData, gameBoard);
 
     } else if(connection_type == DISCONNECTED) {
         return handlePlayerDisconnect(gameState, receivedData);
     }
+
+    //TODO: Handle connection type 2 (winning scenario)
 
     return -3;
 }
@@ -155,7 +164,8 @@ int executeGame(int connection_type, struct received *receivedData, struct game_
  *   receivedData - data received from handleConnections function
  * Returns: -1 on error, 0 otherwise
  */
-int handleGameSequence(struct game_state *gameState, struct received *receivedData) {
+int handleGameSequence(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
+    int winner;
     struct packet_data data;
     memset(&data, 0, sizeof(struct packet_data));
 
@@ -163,7 +173,34 @@ int handleGameSequence(struct game_state *gameState, struct received *receivedDa
     data.x = receivedData->data->x;
     data.y = receivedData->data->y;
 
-    if(receivedData->fileDescriptor == gameState->client1) {
+    if (gameBoard[data.x][data.y] == 0) {
+        gameBoard[data.x][data.y] = receivedData->fileDescriptor;
+    } else {
+        return DEFAULT_ERROR_RETURN;
+    }
+
+    winner = checkIfWon(gameBoard, gameState);
+    if(winner == gameState->client1) {
+        data.gameState = 2;
+        data.enemyMove = 0;
+        sendData(gameState->client1, &data, MAX_SEND_RETRY_COUNT);
+
+        data.enemyMove = 1;
+        sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
+        gameState->gameState = 2;
+        return DEFAULT_RETURN;
+
+    } else if (winner == gameState->client2) {
+        data.gameState = 2;
+        data.enemyMove = 0;
+        sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
+
+        data.enemyMove = 1;
+        sendData(gameState->client1, &data, MAX_SEND_RETRY_COUNT);
+        gameState->gameState = 2;
+        return DEFAULT_RETURN;
+
+    } else if (receivedData->fileDescriptor == gameState->client1) {
         data.enemyMove = 0;
         sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
 
@@ -182,6 +219,72 @@ int handleGameSequence(struct game_state *gameState, struct received *receivedDa
     } else {
         return DEFAULT_ERROR_RETURN;
     }
+}
+
+/*
+ * Desc: Checks if the current game board has been won by any client.
+ * Params:
+ *    gameBoard - current representation of the game board
+ *    gameState - current game state
+ * Returns: file descriptor of the winning client or 0, if no winner is present
+ */
+int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct game_state *gameState) {
+    int sumClient1, sumClient2;
+    int client1 = gameState->client1;
+    int client2 = gameState->client2;
+
+    // Vertical
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        sumClient1 = 0;
+        sumClient2 = 0;
+
+        for(int j = 0; j < BOARD_SIZE; j++) {
+            sumClient1 += gameBoard[i][j] == client1;
+            sumClient2 += gameBoard[i][j] == client2;
+        }
+
+        if(sumClient1 == BOARD_SIZE) return client1;
+        if(sumClient2 == BOARD_SIZE) return client2;
+    }
+
+    // Horizontal
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        sumClient1 = 0;
+        sumClient2 = 0;
+
+        for(int j = 0; j < BOARD_SIZE; j++) {
+            sumClient1 += gameBoard[j][i] == client1;
+            sumClient2 += gameBoard[j][i] == client2;
+        }
+
+        if(sumClient1 == BOARD_SIZE) return client1;
+        if(sumClient2 == BOARD_SIZE) return client2;
+    }
+
+    // Diagonal
+    sumClient1 = 0;
+    sumClient2 = 0;
+
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        sumClient1 += gameBoard[i][i] == client1;
+        sumClient2 += gameBoard[i][i] == client2;
+    }
+
+    if(sumClient1 == BOARD_SIZE) return client1;
+    if(sumClient2 == BOARD_SIZE) return client2;
+
+    sumClient1 = 0;
+    sumClient2 = 0;
+
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        sumClient1 += gameBoard[i][BOARD_SIZE - i] == client1;
+        sumClient2 += gameBoard[i][BOARD_SIZE - i] == client2;
+    }
+
+    if(sumClient1 == BOARD_SIZE) return client1;
+    if(sumClient2 == BOARD_SIZE) return client2;
+
+    return 0;
 }
 
 /*
@@ -527,6 +630,3 @@ void handleError(int errorCode, int errorType) {
 
     printf("Error code explanation: %s\n", gai_strerror(errorCode));
 }
-
-
-
