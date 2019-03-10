@@ -11,10 +11,13 @@
 
 #define PORT "9034"
 #define SERVER_ADDRESS "localhost"
+#define BOARD_SIZE 3
 #define DEFAULT_ERROR_RETURN -1
 #define DEFAULT_RETURN 0
 #define MAX_HOSTNAME_LENGTH 200
 #define MAX_RETRY_COUNT 10
+#define ADVERSARY_NBR 2
+#define DEBUG 0
 
 struct packet_data {
     int gameState;
@@ -30,14 +33,16 @@ int connectToPort(struct addrinfo *ai, int *socketFd);
 int getServerAddress(char address[], int address_length);
 int sendData(int socketFd, struct packet_data *data, int timeout);
 int receiveData(int socketFd, struct packet_data *data);
-int playMatch(int socketFd);
-int playMove(int socketFd);
-int displayGameBoard(struct packet_data *gameData);
+int playMatch(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 
 
 int main() {
 
     const char hostPort[5], hostname[MAX_HOSTNAME_LENGTH];
+    int gameBoard[BOARD_SIZE][BOARD_SIZE];
     struct addrinfo hints, *addrInfo;
     int socketFd, gameRunning;
 
@@ -64,9 +69,10 @@ int main() {
 
     freeaddrinfo(addrInfo);
     gameRunning = 1;
+    clearGameBoard(gameBoard);
 
     while(gameRunning) {
-        playMatch(socketFd);
+        playMatch(socketFd, gameBoard);
     }
 
 
@@ -77,28 +83,42 @@ int main() {
  *
  * Returns:
  */
-int playMatch(int socketFd) {
+int playMatch(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     struct packet_data game_data;
     memset(&game_data, 0, sizeof(struct packet_data));
 
-    //sendData(socketFd, &game_data, MAX_RETRY_COUNT);
     receiveData(socketFd, &game_data);
-    printf("GameState: %d.\n", game_data.gameState);
+    if(DEBUG) printf("GameState: %d.\n", game_data.gameState);
 
     if(game_data.gameState == 0) {
         printf("Waiting for a second client to connect.\n");
+        clearGameBoard(gameBoard);
         return DEFAULT_RETURN;
 
     } else if(game_data.gameState == 1) {
         if(game_data.enemyMove == 0) {
-            printf("Your move.\n");
-            displayGameBoard(&game_data);
-            playMove(socketFd);
+            system("clear\n");
 
-        } else {
+            if(game_data.x >= 0 && game_data.y >= 0) gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR;
+            displayGameBoard(&game_data, gameBoard);
+
+            printf("Your move. \n");
+            playMove(socketFd, gameBoard);
+
+        } else if (game_data.enemyMove == 1){
+            gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR + 1;
+            displayGameBoard(&game_data, gameBoard);
+
             printf("Wait for your turn.\n");
             return DEFAULT_RETURN;
         }
+    } else if(game_data.gameState == 2) {
+        printf("Match concluded.\n");
+        if(game_data.enemyMove == 0) printf("Concgradulations, you won!\n");
+        if(game_data.enemyMove == 1) printf("Bummer, you lost :(\n");
+        if(game_data.enemyMove == 2) printf("Whoa, it's a draw :O\n");
+
+        clearGameBoard(gameBoard);
     }
     return DEFAULT_ERROR_RETURN;
 }
@@ -109,23 +129,28 @@ int playMatch(int socketFd) {
  *
  * Returns:
  */
-int playMove(int socketFd) {
+int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     int x, y;
+    char temp[200];
     struct packet_data data;
     memset(&data, 0, sizeof(struct packet_data));
 
-    printf("Please enter coordinates you'd like to play. \n");
-    printf("Enter the X coordinate and then Y.\n");
-    scanf("%d %d", &x, &y);
+    printf("Enter the vertical (Y) and then the horizontal (X) coordinates you'd like to play.\n");
+    scanf("%s", temp);
+    x = atoi(temp);
+    scanf("%s", temp);
+    y = atoi(temp);
 
-    if(x >= 0 && x <=2 && y >= 0 && y <= 2) {
+    printf("%d", x);
+
+    if(x >= 0 && x <=BOARD_SIZE - 1 && y >= 0 && y <= BOARD_SIZE - 1 && gameBoard[x][y] == 0) {
         data.x = x;
         data.y = y;
         return sendData(socketFd, &data, MAX_RETRY_COUNT);
 
     } else {
         printf("Please enter valid coordinates!\n");
-        return playMove(socketFd);
+        return playMove(socketFd, gameBoard);
     }
 }
 
@@ -135,8 +160,34 @@ int playMove(int socketFd) {
  *
  * Returns:
  */
-int displayGameBoard(struct packet_data *gameData) {
-    return 0;
+void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
+    printf("  ");
+    for(int i = 0; i < BOARD_SIZE; i++) printf(" %d", i);
+    printf("\n  ");
+    for(int i = 0; i < BOARD_SIZE; i++) printf("__");
+    printf("\n");
+
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        printf("%d|", i);
+        for(int j = 0; j < BOARD_SIZE; j++) {
+
+            if(gameBoard[i][j] == 0) printf("  ");
+            else if(gameBoard[i][j] == ADVERSARY_NBR) printf(" X");
+            else if(gameBoard[i][j] == ADVERSARY_NBR + 1) printf(" O");
+        }
+        printf("\n");
+    }
+}
+
+/*
+ * Desc: Sets game board to initial state
+ * Params:
+ *    gameBoard - board to reset
+ */
+void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        memset(gameBoard[i], 0, sizeof(gameBoard[i]));
+    }
 }
 
 /*
