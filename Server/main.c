@@ -68,6 +68,7 @@ int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received 
 int sendData(int socketFd, struct packet_data *data, int timeout);
 int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 int addPlayer(struct received *receivedData, struct game_state *gameState);
+void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData);
 int handleGameSequence(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 int handleNewPlayer(struct game_state *gameState, struct received *receivedData);
@@ -138,11 +139,7 @@ int main() {
  */
 int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     if(gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
-
-        for(int i = 0; i < BOARD_SIZE; i++) {
-            memset(gameBoard[i], 0, sizeof(gameBoard[i]));
-        }
-
+        clearGameBoard(gameBoard);
         return handleNewPlayer(gameState, receivedData);
 
     } else if(gameState->gameState == 1 && connection_type == NEW_DATA) {
@@ -190,7 +187,7 @@ int handleGameSequence(struct game_state *gameState, struct received *receivedDa
         gameState->gameState = 2;
         return DEFAULT_RETURN;
 
-    } else if (winner == gameState->client2) {
+    } else if(winner == gameState->client2) {
         data.gameState = 2;
         data.enemyMove = 0;
         sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
@@ -200,7 +197,15 @@ int handleGameSequence(struct game_state *gameState, struct received *receivedDa
         gameState->gameState = 2;
         return DEFAULT_RETURN;
 
-    } else if (receivedData->fileDescriptor == gameState->client1) {
+    } else if(winner == -1) {
+        data.gameState = 2;
+        data.enemyMove = 2;
+        sendData(gameState->client1, &data, MAX_SEND_RETRY_COUNT);
+        sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
+        gameState->gameState = 2;
+        return DEFAULT_RETURN;
+
+    } else if(receivedData->fileDescriptor == gameState->client1) {
         data.enemyMove = 0;
         sendData(gameState->client2, &data, MAX_SEND_RETRY_COUNT);
 
@@ -226,25 +231,31 @@ int handleGameSequence(struct game_state *gameState, struct received *receivedDa
  * Params:
  *    gameBoard - current representation of the game board
  *    gameState - current game state
- * Returns: file descriptor of the winning client or 0, if no winner is present
+ * Returns: file descriptor of the winning client or 0, if no winner is present and -1 if draw
  */
 int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct game_state *gameState) {
-    int sumClient1, sumClient2;
+    int sumClient1, sumClient2, drawSum;
     int client1 = gameState->client1;
     int client2 = gameState->client2;
 
-    // Vertical
+    // Vertical & draw
     for(int i = 0; i < BOARD_SIZE; i++) {
         sumClient1 = 0;
         sumClient2 = 0;
+        drawSum = 0;
 
         for(int j = 0; j < BOARD_SIZE; j++) {
             sumClient1 += gameBoard[i][j] == client1;
             sumClient2 += gameBoard[i][j] == client2;
+
+            drawSum += gameBoard[i][j] == client1;
+            drawSum += gameBoard[i][j] == client2;
         }
 
         if(sumClient1 == BOARD_SIZE) return client1;
         if(sumClient2 == BOARD_SIZE) return client2;
+
+        if(drawSum == BOARD_SIZE * BOARD_SIZE) return -1;
     }
 
     // Horizontal
@@ -285,6 +296,18 @@ int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct game_state *gameSta
     if(sumClient2 == BOARD_SIZE) return client2;
 
     return 0;
+}
+
+
+/*
+ * Desc: Sets game board to initial state
+ * Params:
+ *    gameBoard - board to reset
+ */
+void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        memset(gameBoard[i], 0, sizeof(gameBoard[i]));
+    }
 }
 
 /*
