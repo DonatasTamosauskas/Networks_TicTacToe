@@ -27,15 +27,25 @@ struct packet_data {
 };
 
 void prepareAddrinfoHints(struct addrinfo *info);
+
 int getPortNumber(char port[]);
+
 void handleError(int errorCode, int errorType);
+
 int connectToPort(struct addrinfo *ai, int *socketFd);
+
 int getServerAddress(char address[], int address_length);
+
 int sendData(int socketFd, struct packet_data *data, int timeout);
+
 int receiveData(int socketFd, struct packet_data *data);
+
 int playMatch(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+
 int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+
 void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+
 void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 
 
@@ -48,21 +58,21 @@ int main() {
 
     prepareAddrinfoHints(&hints);
 
-    if((getPortNumber(hostPort)) != 0) {
+    if ((getPortNumber(hostPort)) != 0) {
         handleError(errno, 1);
         return DEFAULT_ERROR_RETURN;
     }
 
-    if(getServerAddress(hostname, MAX_HOSTNAME_LENGTH) < 0) {
+    if (getServerAddress(hostname, MAX_HOSTNAME_LENGTH) < 0) {
 
     }
 
-    if(getaddrinfo(hostname, hostPort, &hints, &addrInfo) != 0) {
+    if (getaddrinfo(hostname, hostPort, &hints, &addrInfo) != 0) {
         handleError(errno, 2);
         return DEFAULT_ERROR_RETURN;
     }
 
-    if(connectToPort(addrInfo, &socketFd) != 0) {
+    if (connectToPort(addrInfo, &socketFd) != 0) {
         handleError(errno, 3);
         return DEFAULT_ERROR_RETURN;
     }
@@ -71,12 +81,13 @@ int main() {
     gameRunning = 1;
     clearGameBoard(gameBoard);
 
-    while(gameRunning) {
+    while (gameRunning) {
         playMatch(socketFd, gameBoard);
     }
 
 
 }
+
 /*
  * Desc:
  * Params:
@@ -88,35 +99,35 @@ int playMatch(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     memset(&game_data, 0, sizeof(struct packet_data));
 
     receiveData(socketFd, &game_data);
-    if(DEBUG) printf("GameState: %d.\n", game_data.gameState);
+    if (DEBUG) printf("GameState: %d.\n", game_data.gameState);
 
-    if(game_data.gameState == 0) {
+    if (game_data.gameState == 0) {
         printf("Waiting for a second client to connect.\n");
         clearGameBoard(gameBoard);
         return DEFAULT_RETURN;
 
-    } else if(game_data.gameState == 1) {
-        if(game_data.enemyMove == 0) {
+    } else if (game_data.gameState == 1) {
+        if (game_data.enemyMove == 0) {
             system("clear\n");
 
-            if(game_data.x >= 0 && game_data.y >= 0) gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR;
+            if (game_data.x >= 0 && game_data.y >= 0) gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR;
             displayGameBoard(&game_data, gameBoard);
 
             printf("Your move. \n");
             playMove(socketFd, gameBoard);
 
-        } else if (game_data.enemyMove == 1){
+        } else if (game_data.enemyMove == 1) {
             gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR + 1;
             displayGameBoard(&game_data, gameBoard);
 
             printf("Wait for your turn.\n");
             return DEFAULT_RETURN;
         }
-    } else if(game_data.gameState == 2) {
+    } else if (game_data.gameState == 2) {
         printf("Match concluded.\n");
-        if(game_data.enemyMove == 0) printf("Concgradulations, you won!\n");
-        if(game_data.enemyMove == 1) printf("Bummer, you lost :(\n");
-        if(game_data.enemyMove == 2) printf("Whoa, it's a draw :O\n");
+        if (game_data.enemyMove == 0) printf("Concgradulations, you won!\n");
+        if (game_data.enemyMove == 1) printf("Bummer, you lost :(\n");
+        if (game_data.enemyMove == 2) printf("Whoa, it's a draw :O\n");
 
         clearGameBoard(gameBoard);
     }
@@ -141,9 +152,7 @@ int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     scanf("%s", temp);
     y = atoi(temp);
 
-    printf("%d", x);
-
-    if(x >= 0 && x <=BOARD_SIZE - 1 && y >= 0 && y <= BOARD_SIZE - 1 && gameBoard[x][y] == 0) {
+    if (x >= 0 && x <= BOARD_SIZE - 1 && y >= 0 && y <= BOARD_SIZE - 1 && gameBoard[x][y] == 0) {
         data.x = x;
         data.y = y;
         return sendData(socketFd, &data, MAX_RETRY_COUNT);
@@ -162,18 +171,18 @@ int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
  */
 void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     printf("  ");
-    for(int i = 0; i < BOARD_SIZE; i++) printf(" %d", i);
+    for (int i = 0; i < BOARD_SIZE; i++) printf(" %d", i);
     printf("\n  ");
-    for(int i = 0; i < BOARD_SIZE; i++) printf("__");
+    for (int i = 0; i < BOARD_SIZE; i++) printf("__");
     printf("\n");
 
-    for(int i = 0; i < BOARD_SIZE; i++) {
+    for (int i = 0; i < BOARD_SIZE; i++) {
         printf("%d|", i);
-        for(int j = 0; j < BOARD_SIZE; j++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
 
-            if(gameBoard[i][j] == 0) printf("  ");
-            else if(gameBoard[i][j] == ADVERSARY_NBR) printf(" X");
-            else if(gameBoard[i][j] == ADVERSARY_NBR + 1) printf(" O");
+            if (gameBoard[i][j] == 0) printf("  ");
+            else if (gameBoard[i][j] == ADVERSARY_NBR) printf(" X");
+            else if (gameBoard[i][j] == ADVERSARY_NBR + 1) printf(" O");
         }
         printf("\n");
     }
@@ -185,7 +194,7 @@ void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BO
  *    gameBoard - board to reset
  */
 void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
-    for(int i = 0; i < BOARD_SIZE; i++) {
+    for (int i = 0; i < BOARD_SIZE; i++) {
         memset(gameBoard[i], 0, sizeof(gameBoard[i]));
     }
 }
@@ -201,10 +210,10 @@ void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
 int sendData(int socketFd, struct packet_data *data, int timeout) {
     int sentBits = send(socketFd, data, sizeof(struct packet_data), 0);
 
-    if(sentBits < sizeof(struct packet_data) && timeout > 0) {
-        return (sendData(socketFd, data, timeout) == sizeof(struct packet_data)) -1;
+    if (sentBits < sizeof(struct packet_data) && timeout > 0) {
+        return (sendData(socketFd, data, timeout) == sizeof(struct packet_data)) - 1;
     }
-    return (sentBits == sizeof(struct packet_data)) -1;
+    return (sentBits == sizeof(struct packet_data)) - 1;
 }
 
 /*
@@ -216,7 +225,7 @@ int sendData(int socketFd, struct packet_data *data, int timeout) {
  */
 int receiveData(int socketFd, struct packet_data *data) {
     int receivedBits = recv(socketFd, data, sizeof(struct packet_data), 0);
-    return (receivedBits == sizeof(struct packet_data)) -1;
+    return (receivedBits == sizeof(struct packet_data)) - 1;
 }
 
 
@@ -226,9 +235,9 @@ int receiveData(int socketFd, struct packet_data *data) {
  *   address - address to connect to, in text form
  * Returns: 0 if okay, -1 if error occurred
  */
-int getServerAddress(char address[], int address_length){
-    for(int i = 0; i < address_length; i++){
-        if(address[i] == 0) break;
+int getServerAddress(char address[], int address_length) {
+    for (int i = 0; i < address_length; i++) {
+        if (address[i] == 0) break;
         address[i] = SERVER_ADDRESS[i];
     }
     return 0;
@@ -241,9 +250,9 @@ int getServerAddress(char address[], int address_length){
  */
 void prepareAddrinfoHints(struct addrinfo *info) {
     memset(info, 0, sizeof(struct addrinfo));
-    info -> ai_family = AF_UNSPEC;
-    info -> ai_socktype = SOCK_STREAM;
-    info -> ai_flags = AI_PASSIVE;
+    info->ai_family = AF_UNSPEC;
+    info->ai_socktype = SOCK_STREAM;
+    info->ai_flags = AI_PASSIVE;
 }
 
 /*
@@ -253,7 +262,7 @@ void prepareAddrinfoHints(struct addrinfo *info) {
  * Returns: Error code.
  */
 int getPortNumber(char port[]) {
-    for(int i = 0; i < 5; i++){
+    for (int i = 0; i < 5; i++) {
         port[i] = PORT[i];
     }
     return 0;
@@ -282,20 +291,20 @@ int connectToPort(struct addrinfo *ai, int *socketFd) {
 
     struct addrinfo *curr;
 
-    for(curr = ai; curr != NULL; curr = curr->ai_next) {
+    for (curr = ai; curr != NULL; curr = curr->ai_next) {
 
         *socketFd = socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
-        if(*socketFd < 0) continue;
+        if (*socketFd < 0) continue;
 
         int connectError = connect(*socketFd, curr->ai_addr, curr->ai_addrlen);
-        if(connectError < 0) {
+        if (connectError < 0) {
             close(*socketFd);
             continue;
         }
         break;
     }
 
-    if(curr == NULL) {
+    if (curr == NULL) {
         return -1;
     } else {
         return 0;
@@ -316,7 +325,7 @@ int connectToPort(struct addrinfo *ai, int *socketFd) {
  *
  */
 void handleError(int errorCode, int errorType) {
-    switch(errorType) {
+    switch (errorType) {
         case 1:
             printf("Unable to get port number. Error code: %d\n", errorCode);
             break;
