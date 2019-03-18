@@ -27,9 +27,7 @@
 #define DEFAULT_ERROR_RETURN 1
 #define DEFAULT_RETURN 0
 
-#define PORT "9034"
 #define MAX_CONNECTION_QUEUE 20
-#define RECEIVING_BUFFER_SIZE 255
 #define MAX_SEND_RETRY_COUNT 10
 #define BOARD_SIZE 3
 #define TIME_BETWEEN_GAMES 1000
@@ -53,7 +51,7 @@ struct received {
     struct packet_data *data;
 };
 
-struct game_state {
+struct gameState {
     int gameState;
     int client1;
     int client2;
@@ -62,8 +60,6 @@ struct game_state {
 void prepareAddrinfoHints(struct addrinfo *info);
 
 void handleError(int errorCode, int errorType);
-
-int getPortNumber(char port[]);
 
 int bindToPort(struct addrinfo *ai, int *listener);
 
@@ -75,49 +71,52 @@ int handleExistingConnection(int i, fd_set *master, int *maxFd, struct received 
 
 int sendData(int socketFd, struct packet_data *data, int timeout);
 
-int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState,
+int executeGame(int connection_type, struct received *receivedData, struct gameState *gameState,
                 int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 
-int addPlayer(struct received *receivedData, struct game_state *gameState);
+int addPlayer(struct received *receivedData, struct gameState *gameState);
 
 void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 
-int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData);
+int handlePlayerDisconnect(struct gameState *gameState, struct received *receivedData);
 
-int handleGameSequence(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
+int handleGameSequence(struct gameState *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 
-int handleNewPlayer(struct game_state *gameState, struct received *receivedData);
+int handleNewPlayer(struct gameState *gameState, struct received *receivedData);
 
-int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct game_state *gameState);
+int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct gameState *gameState);
 
-void resetGame(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE],
+void resetGame(struct gameState *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE],
                int *connectionType);
 
-int main() {
+int main(int argc, char *argv[]) {
 
     int listener, maxFd, connectionType;
     int gameRunning;
-    const char hostPort[5];
+    char hostPort[5];
     struct addrinfo hints, *addrInfo;
     struct received receivedData;
     struct packet_data packetData;
-    struct game_state gameState;
+    struct gameState gameState;
     int gameBoard[BOARD_SIZE][BOARD_SIZE];
     fd_set master;
 
     gameRunning = 1;
     memset(&receivedData, 0, sizeof(struct received));
     memset(&packetData, 0, sizeof(struct packet_data));
-    memset(&gameState, 0, sizeof(struct game_state));
+    memset(&gameState, 0, sizeof(struct gameState));
+    memset(hostPort, 0, sizeof(hostPort));
     receivedData.data = &packetData;
     FD_ZERO(&master);
 
 
     prepareAddrinfoHints(&hints);
 
-    if ((getPortNumber(hostPort)) != 0) {
+    if (argc < 2) {
         handleError(errno, 1);
         return DEFAULT_ERROR_RETURN;
+    } else {
+        strcpy(hostPort, *(argv + 1));
     }
 
     if (getaddrinfo(NULL, hostPort, &hints, &addrInfo) != 0) {
@@ -156,12 +155,17 @@ int main() {
 }
 
 /*
- * Desc:
+ * Desc: Main game loop function that handles game state changing and directs connections.
  * Params:
- *
+ *    connection_type - classifier that defines the type of incomming connection
+ *    receivedData - struct with data received from a connection
+ *    gameState - struct with information about current game
  * Returns:
+ *    0 - if all executed as expected
+ *    -1 - if error occurred
+ *    -3 - unhandled combination of input parameters
  */
-int executeGame(int connection_type, struct received *receivedData, struct game_state *gameState,
+int executeGame(int connection_type, struct received *receivedData, struct gameState *gameState,
                 int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     if (gameState->gameState == 0 && connection_type == NEW_CONNECTION) {
         clearGameBoard(gameBoard);
@@ -177,7 +181,15 @@ int executeGame(int connection_type, struct received *receivedData, struct game_
     return -3;
 }
 
-void resetGame(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE],
+/*
+ * Desc: Function resets the game info and prepares game for the next round.
+ * Params:
+ *    gameState - struct with information about current game
+ *    receivedData - struct with data received from a connection
+ *    gameBoard - the game board matrix
+ *    connection_type - classifier that defines the type of incomming connection
+ */
+void resetGame(struct gameState *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE],
                int *connectionType) {
     gameState->gameState = 0;
     receivedData->fileDescriptor = gameState->client2;
@@ -194,8 +206,7 @@ void resetGame(struct game_state *gameState, struct received *receivedData, int 
  *   receivedData - data received from handleConnections function
  * Returns: -1 on error, 0 otherwise
  */
-int
-handleGameSequence(struct game_state *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
+int handleGameSequence(struct gameState *gameState, struct received *receivedData, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     int winner;
     struct packet_data data;
     memset(&data, 0, sizeof(struct packet_data));
@@ -267,7 +278,7 @@ handleGameSequence(struct game_state *gameState, struct received *receivedData, 
  *    gameState - current game state
  * Returns: file descriptor of the winning client or 0, if no winner is present and -1 if draw
  */
-int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct game_state *gameState) {
+int checkIfWon(int gameBoard[BOARD_SIZE][BOARD_SIZE], struct gameState *gameState) {
     int sumClient1, sumClient2, drawSum;
     int client1 = gameState->client1;
     int client2 = gameState->client2;
@@ -354,7 +365,7 @@ void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
  *    -1 on error
  *    -2 on disconnection from non-client
  */
-int handlePlayerDisconnect(struct game_state *gameState, struct received *receivedData) {
+int handlePlayerDisconnect(struct gameState *gameState, struct received *receivedData) {
     if (gameState->gameState == 0) {
         gameState->client1 = 0;
         if (DEBUG) printf("Player #1 disconnected. No more connected players.\n");
@@ -392,7 +403,7 @@ int handlePlayerDisconnect(struct game_state *gameState, struct received *receiv
  *    receivedData - struct that has the connecting players info
  * Returns: -1 on error, 0 otherwise
  */
-int handleNewPlayer(struct game_state *gameState, struct received *receivedData) {
+int handleNewPlayer(struct gameState *gameState, struct received *receivedData) {
     int players = addPlayer(receivedData, gameState);
     struct packet_data exportData;
     memset(&exportData, 0, sizeof(struct packet_data));
@@ -436,7 +447,7 @@ int handleNewPlayer(struct game_state *gameState, struct received *receivedData)
  *    1 - if first client added
  *    2 - if second client added
  */
-int addPlayer(struct received *receivedData, struct game_state *gameState) {
+int addPlayer(struct received *receivedData, struct gameState *gameState) {
     if (gameState->client1 == 0) {
         gameState->client1 = receivedData->fileDescriptor;
         return 1;
@@ -622,19 +633,6 @@ void prepareAddrinfoHints(struct addrinfo *info) {
     info->ai_family = AF_UNSPEC;
     info->ai_socktype = SOCK_STREAM;
     info->ai_flags = AI_PASSIVE;
-}
-
-/*
- * Desc: Function gets the port number to be used for this instance.
- * Params:
- *   port - port number to be returned
- * Returns: Error code.
- */
-int getPortNumber(char port[]) {
-    for (int i = 0; i < 5; i++) {
-        port[i] = PORT[i];
-    }
-    return 0;
 }
 
 /*
