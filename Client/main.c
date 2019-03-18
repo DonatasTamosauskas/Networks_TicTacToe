@@ -9,7 +9,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#define PORT "9034"
 #define SERVER_ADDRESS "localhost"
 #define BOARD_SIZE 3
 #define DEFAULT_ERROR_RETURN -1
@@ -27,8 +26,6 @@ struct packet_data {
 };
 
 void prepareAddrinfoHints(struct addrinfo *info);
-
-int getPortNumber(char port[]);
 
 void handleError(int errorCode, int errorType);
 
@@ -49,18 +46,21 @@ void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BO
 void clearGameBoard(int gameBoard[BOARD_SIZE][BOARD_SIZE]);
 
 
-int main() {
+int main(int argc, char *argv[]) {
 
-    const char hostPort[5], hostname[MAX_HOSTNAME_LENGTH];
+    char hostPort[5], hostname[MAX_HOSTNAME_LENGTH];
     int gameBoard[BOARD_SIZE][BOARD_SIZE];
     struct addrinfo hints, *addrInfo;
     int socketFd, gameRunning;
 
+    memset(hostPort, 0, sizeof(hostPort));
     prepareAddrinfoHints(&hints);
 
-    if ((getPortNumber(hostPort)) != 0) {
+    if (argc < 2) {
         handleError(errno, 1);
         return DEFAULT_ERROR_RETURN;
+    } else {
+        strcpy(hostPort, *(argv + 1));
     }
 
     if (getServerAddress(hostname, MAX_HOSTNAME_LENGTH) < 0) {
@@ -89,45 +89,49 @@ int main() {
 }
 
 /*
- * Desc:
+ * Desc: Main game loop function that handles the game progress and data manipulation
  * Params:
- *
+ *    socketFd - connected to the server socket file descriptor
+ *    gameBoard - current game board
  * Returns:
+ *    0 - if all is ok
+ *    -1 - if error occured
  */
 int playMatch(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
-    struct packet_data game_data;
-    memset(&game_data, 0, sizeof(struct packet_data));
+    struct packet_data gameData;
+    memset(&gameData, 0, sizeof(struct packet_data));
 
-    receiveData(socketFd, &game_data);
-    if (DEBUG) printf("GameState: %d.\n", game_data.gameState);
+    receiveData(socketFd, &gameData);
+    if (DEBUG) printf("GameState: %d.\n", gameData.gameState);
 
-    if (game_data.gameState == 0) {
+    if (gameData.gameState == 0) {
         printf("Waiting for a second client to connect.\n");
         clearGameBoard(gameBoard);
         return DEFAULT_RETURN;
 
-    } else if (game_data.gameState == 1) {
-        if (game_data.enemyMove == 0) {
+    } else if (gameData.gameState == 1) {
+        if (gameData.enemyMove == 0) {
             system("clear\n");
 
-            if (game_data.x >= 0 && game_data.y >= 0) gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR;
-            displayGameBoard(&game_data, gameBoard);
+            if (gameData.x >= 0 && gameData.y >= 0) gameBoard[gameData.x][gameData.y] = ADVERSARY_NBR;
+            displayGameBoard(&gameData, gameBoard);
 
             printf("Your move. \n");
             playMove(socketFd, gameBoard);
 
-        } else if (game_data.enemyMove == 1) {
-            gameBoard[game_data.x][game_data.y] = ADVERSARY_NBR + 1;
-            displayGameBoard(&game_data, gameBoard);
+        } else if (gameData.enemyMove == 1) {
+            gameBoard[gameData.x][gameData.y] = ADVERSARY_NBR + 1;
+            displayGameBoard(&gameData, gameBoard);
 
             printf("Wait for your turn.\n");
             return DEFAULT_RETURN;
         }
-    } else if (game_data.gameState == 2) {
+    } else if (gameData.gameState == 2) {
+        //TODO: Separate UI from logic.
         printf("Match concluded.\n");
-        if (game_data.enemyMove == 0) printf("Concgradulations, you won!\n");
-        if (game_data.enemyMove == 1) printf("Bummer, you lost :(\n");
-        if (game_data.enemyMove == 2) printf("Whoa, it's a draw :O\n");
+        if (gameData.enemyMove == 0) printf("Congratulations, you won!\n");
+        if (gameData.enemyMove == 1) printf("Bummer, you lost :(\n");
+        if (gameData.enemyMove == 2) printf("Whoa, it's a draw :O\n");
 
         clearGameBoard(gameBoard);
     }
@@ -135,10 +139,13 @@ int playMatch(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
 }
 
 /*
- * Desc:
+ * Desc: Function handles collecting the move from the player and sending it to server.
  * Params:
- *
+ *    socketFd - file descriptor of the socket that is connected to the server
+ *    gameBoard - current state of the game board
  * Returns:
+ *    0 - if all is ok
+ *    -1 - if error has occurred
  */
 int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     int x, y;
@@ -164,10 +171,10 @@ int playMove(int socketFd, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
 }
 
 /*
- * Desc:
+ * Desc: Function that prints the state of the game board after the last move
  * Params:
- *
- * Returns:
+ *    gameData - struct containing the last move data
+ *    gameBoard - current state of the game board
  */
 void displayGameBoard(struct packet_data *gameData, int gameBoard[BOARD_SIZE][BOARD_SIZE]) {
     printf("  ");
@@ -253,19 +260,6 @@ void prepareAddrinfoHints(struct addrinfo *info) {
     info->ai_family = AF_UNSPEC;
     info->ai_socktype = SOCK_STREAM;
     info->ai_flags = AI_PASSIVE;
-}
-
-/*
- * Desc: Function gets the port number to be used for this instance.
- * Params:
- *   port - port number to be returned
- * Returns: Error code.
- */
-int getPortNumber(char port[]) {
-    for (int i = 0; i < 5; i++) {
-        port[i] = PORT[i];
-    }
-    return 0;
 }
 
 /*
